@@ -2698,7 +2698,7 @@ public class ImageSaver extends Thread {
                     success = true;
                 }
 
-                if( request.image_format == Request.ImageFormat.STD ) {
+                if( request.image_format == Request.ImageFormat.STD || request.image_format == Request.ImageFormat.WEBP ) {
                     // handle transferring/setting Exif tags (JPEG format only)
                     if( bitmap != null ) {
                         // need to update EXIF data! (only supported for JPEG image formats)
