@@ -7,7 +7,9 @@ import android.os.Handler;
 import android.util.Log;
 import android.view.View;
 
-/** Overlay for the Preview - this just redirects to Preview.onDraw to do the
+import androidx.annotation.NonNull;
+
+/** View for on top of the Preview - this just redirects to Preview.onDraw to do the
  *  work. Only used if using a MyTextureView (if using MySurfaceView, then that
  *  class can handle the onDraw()). TextureViews can't be used for both a
  *  camera preview, and used for drawing on.
@@ -42,7 +44,7 @@ public class CanvasView extends View {
     }
 
     @Override
-    public void onDraw(Canvas canvas) {
+    public void onDraw(@NonNull Canvas canvas) {
 		/*if( MyDebug.LOG )
 			Log.d(TAG, "onDraw()");*/
         preview.draw(canvas);

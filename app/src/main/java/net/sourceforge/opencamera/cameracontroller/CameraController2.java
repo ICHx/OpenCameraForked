@@ -43,6 +43,8 @@ import android.hardware.camera2.params.StreamConfigurationMap;
 import android.hardware.camera2.params.TonemapCurve;
 import android.location.Location;
 import android.media.AudioManager;
+
+import androidx.annotation.IntRange;
 import androidx.exifinterface.media.ExifInterface;
 import android.media.Image;
 import android.media.ImageReader;
@@ -524,8 +526,14 @@ public class CameraController2 extends CameraController {
                     Log.d(TAG, "nr_mode: " + (nr_mode==null ? "null" : nr_mode));
                     Integer edge_mode = builder.get(CaptureRequest.EDGE_MODE);
                     Log.d(TAG, "edge_mode: " + (edge_mode==null ? "null" : edge_mode));
-                    Integer cc_mode = builder.get(CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE);
+                    Integer control_mode = builder.get(CaptureRequest.CONTROL_MODE);
+                    Log.d(TAG, "control_mode: " + (control_mode==null ? "null" : control_mode));
+                    Integer scene_mode = builder.get(CaptureRequest.CONTROL_SCENE_MODE);
+                    Log.d(TAG, "scene_mode: " + (scene_mode==null ? "null" : scene_mode));
+                    Integer cc_mode = builder.get(CaptureRequest.COLOR_CORRECTION_MODE);
                     Log.d(TAG, "cc_mode: " + (cc_mode==null ? "null" : cc_mode));
+                    Integer cca_mode = builder.get(CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE);
+                    Log.d(TAG, "cca_mode: " + (cc_mode==null ? "null" : cca_mode));
                     /*if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.N ) {
                         Integer raw_sensitivity_boost = builder.get(CaptureRequest.CONTROL_POST_RAW_SENSITIVITY_BOOST);
                         Log.d(TAG, "raw_sensitivity_boost: " + (raw_sensitivity_boost==null ? "null" : raw_sensitivity_boost));
@@ -540,6 +548,7 @@ public class CameraController2 extends CameraController {
             if( MyDebug.LOG ) {
                 Log.d(TAG, "setSceneMode");
                 Log.d(TAG, "builder: " + builder);
+                Log.d(TAG, "has_face_detect_mode: " + has_face_detect_mode);
             }
 
             if( sessionType == SessionType.SESSIONTYPE_EXTENSION ) {
@@ -547,28 +556,35 @@ public class CameraController2 extends CameraController {
                 return false;
             }
 
+            Integer current_mode = builder.get(CaptureRequest.CONTROL_MODE);
             Integer current_scene_mode = builder.get(CaptureRequest.CONTROL_SCENE_MODE);
+            if( MyDebug.LOG )
+                Log.d(TAG, "current_scene_mode: " + current_scene_mode);
             if( has_face_detect_mode ) {
                 // face detection mode overrides scene mode
-                if( current_scene_mode == null || current_scene_mode != CameraMetadata.CONTROL_SCENE_MODE_FACE_PRIORITY ) {
-                    if (MyDebug.LOG)
-                        Log.d(TAG, "setting scene mode for face detection");
-                    builder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_USE_SCENE_MODE);
-                    builder.set(CaptureRequest.CONTROL_SCENE_MODE, CameraMetadata.CONTROL_SCENE_MODE_FACE_PRIORITY);
+                if( MyDebug.LOG )
+                    Log.d(TAG, "setting scene mode for face detection");
+                builder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_USE_SCENE_MODE);
+                builder.set(CaptureRequest.CONTROL_SCENE_MODE, CameraMetadata.CONTROL_SCENE_MODE_FACE_PRIORITY);
+                if( current_mode == null || current_mode != CameraMetadata.CONTROL_MODE_USE_SCENE_MODE || current_scene_mode == null || current_scene_mode != CameraMetadata.CONTROL_SCENE_MODE_FACE_PRIORITY )
                     return true;
-                }
             }
-            else if( current_scene_mode == null || current_scene_mode != scene_mode ) {
+            else {
                 if( MyDebug.LOG )
                     Log.d(TAG, "setting scene mode: " + scene_mode);
+                int new_mode;
                 if( scene_mode == CameraMetadata.CONTROL_SCENE_MODE_DISABLED ) {
-                    builder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
+                    // note we set CONTROL_MODE_AUTO even if using manual exposure, focus or awb, as we set that separately via
+                    // CONTROL_AE_MODE_OFF etc
+                    new_mode = CameraMetadata.CONTROL_MODE_AUTO;
                 }
                 else {
-                    builder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_USE_SCENE_MODE);
+                    new_mode = CameraMetadata.CONTROL_MODE_USE_SCENE_MODE;
                 }
+                builder.set(CaptureRequest.CONTROL_MODE, new_mode);
                 builder.set(CaptureRequest.CONTROL_SCENE_MODE, scene_mode);
-                return true;
+                if( current_mode == null || current_mode != new_mode || current_scene_mode == null || current_scene_mode != scene_mode )
+                    return true;
             }
             return false;
         }
@@ -1448,6 +1464,57 @@ public class CameraController2 extends CameraController {
         return value;
     }
 
+    /** Issues the next slow burst capture, on a post delayed on the handler.
+     */
+    private void postNextSlowBurst() {
+        if( MyDebug.LOG )
+            Log.d(TAG, "postNextSlowBurst");
+        handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if( MyDebug.LOG )
+                    Log.d(TAG, "take picture after delay for next slow burst");
+                if( camera != null && hasCaptureSession() ) { // make sure camera wasn't released in the meantime
+                    // check for imageQueueWouldBlock needed for focus bracketing
+                    if( picture_cb.imageQueueWouldBlock(imageReaderRaw != null ? 1 : 0, 1) ) {
+                        if( MyDebug.LOG ) {
+                            Log.d(TAG, "...but wait for next bracket, as image queue would block");
+                        }
+                        handler.postDelayed(this, 100);
+                        //throw new RuntimeException(); // test
+                    }
+                    else {
+                        if( burst_type == BurstType.BURSTTYPE_FOCUS ) {
+                            // For focus bracketing mode, we play the shutter sound per shot (so the user can tell when the sequence is complete).
+                            // From a user mode, the gap between shots in focus bracketing mode makes this more analogous to the auto-repeat mode
+                            // (at the Preview level), which makes the shutter sound per shot.
+
+                            playSound(MediaActionSound.SHUTTER_CLICK);
+                        }
+                        try {
+                            captureSession.capture(slow_burst_capture_requests.get(n_burst_taken), previewCaptureCallback, handler);
+                        }
+                        catch(CameraAccessException e) {
+                            if( MyDebug.LOG ) {
+                                Log.e(TAG, "failed to take next focus bracket");
+                                Log.e(TAG, "reason: " + e.getReason());
+                                Log.e(TAG, "message: " + e.getMessage());
+                            }
+                            e.printStackTrace();
+                            jpeg_todo = false;
+                            raw_todo = false;
+                            picture_cb = null;
+                            if( take_picture_error_cb != null ) {
+                                take_picture_error_cb.onError();
+                                take_picture_error_cb = null;
+                            }
+                        }
+                    }
+                }
+            }
+        }, 500);
+    }
+
     private class OnImageAvailableListener implements ImageReader.OnImageAvailableListener {
         private boolean skip_next_image = false; // whether to ignore the next image (used for dummy_capture_hack)
 
@@ -1588,7 +1655,7 @@ public class CameraController2 extends CameraController {
                         Log.d(TAG, "time since start: " + (System.currentTimeMillis() - slow_burst_start_ms));
                     }
                     if( burst_type != BurstType.BURSTTYPE_FOCUS ) {
-                        try {
+                        /*try {
                             if( camera != null && hasCaptureSession() ) { // make sure camera wasn't released in the meantime
                                 captureSession.capture(slow_burst_capture_requests.get(n_burst_taken), previewCaptureCallback, handler);
                             }
@@ -1604,6 +1671,32 @@ public class CameraController2 extends CameraController {
                             raw_todo = false;
                             picture_cb = null;
                             push_take_picture_error_cb = take_picture_error_cb;
+                        }*/
+                        // see note in takePictureBurstBracketing() for why we also set preview for slow burst with expo bracketing -
+                        // helps Samsung Galaxy devices
+                        if( previewBuilder != null ) { // make sure camera wasn't released in the meantime
+                            try {
+                                long exposure_time = slow_burst_capture_requests.get(n_burst_taken).get(CaptureRequest.SENSOR_EXPOSURE_TIME);
+                                if( MyDebug.LOG ) {
+                                    Log.d(TAG, "prepare preview for next exposure: " + exposure_time);
+                                }
+                                previewBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, exposure_time);
+
+                                setRepeatingRequest(previewBuilder.build());
+                            }
+                            catch(CameraAccessException e) {
+                                if( MyDebug.LOG ) {
+                                    Log.e(TAG, "failed to take set exposure for next expo bracketing burst");
+                                    Log.e(TAG, "reason: " + e.getReason());
+                                    Log.e(TAG, "message: " + e.getMessage());
+                                }
+                                e.printStackTrace();
+                                jpeg_todo = false;
+                                raw_todo = false;
+                                picture_cb = null;
+                                push_take_picture_error_cb = take_picture_error_cb;
+                            }
+                            postNextSlowBurst();
                         }
                     }
                     else if( previewBuilder != null ) { // make sure camera wasn't released in the meantime
@@ -1667,47 +1760,7 @@ public class CameraController2 extends CameraController {
                             picture_cb = null;
                             push_take_picture_error_cb = take_picture_error_cb;
                         }
-                        handler.postDelayed(new Runnable(){
-                            @Override
-                            public void run(){
-                                if( MyDebug.LOG )
-                                    Log.d(TAG, "take picture after delay for next focus bracket");
-                                if( camera != null && hasCaptureSession() ) { // make sure camera wasn't released in the meantime
-                                    if( picture_cb.imageQueueWouldBlock(imageReaderRaw != null ? 1 : 0, 1) ) {
-                                        if( MyDebug.LOG ) {
-                                            Log.d(TAG, "...but wait for next focus bracket, as image queue would block");
-                                        }
-                                        handler.postDelayed(this, 100);
-                                        //throw new RuntimeException(); // test
-                                    }
-                                    else {
-                                        // For focus bracketing mode, we play the shutter sound per shot (so the user can tell when the sequence is complete).
-                                        // From a user mode, the gap between shots in focus bracketing mode makes this more analogous to the auto-repeat mode
-                                        // (at the Preview level), which makes the shutter sound per shot.
-
-                                        playSound(MediaActionSound.SHUTTER_CLICK);
-                                        try {
-                                            captureSession.capture(slow_burst_capture_requests.get(n_burst_taken), previewCaptureCallback, handler);
-                                        }
-                                        catch(CameraAccessException e) {
-                                            if( MyDebug.LOG ) {
-                                                Log.e(TAG, "failed to take next focus bracket");
-                                                Log.e(TAG, "reason: " + e.getReason());
-                                                Log.e(TAG, "message: " + e.getMessage());
-                                            }
-                                            e.printStackTrace();
-                                            jpeg_todo = false;
-                                            raw_todo = false;
-                                            picture_cb = null;
-                                            if( take_picture_error_cb != null ) {
-                                                take_picture_error_cb.onError();
-                                                take_picture_error_cb = null;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }, 500);
+                        postNextSlowBurst();
                     }
                 }
             }
@@ -2512,12 +2565,12 @@ public class CameraController2 extends CameraController {
         int zoom_value_1x;
 
         // prepare zoom rations > 1x
-        // set 20 steps per 2x factor
-        final double scale_factor_c = 1.0352649238413775043477881942112;
+        // set 40 steps per 2x factor
+        final double scale_factor_c = 1.0174796921026863936352862847966;
         List<Integer> zoom_ratios_above_one = new ArrayList<>();
         double zoom = scale_factor_c;
         while( zoom < max_zoom - 1.0e-5f ) {
-            int zoom_ratio = (int)(zoom*100);
+            int zoom_ratio = (int)(zoom*100+1.0e-5);
             zoom_ratios_above_one.add(zoom_ratio);
             zoom *= scale_factor_c;
         }
@@ -2886,6 +2939,20 @@ public class CameraController2 extends CameraController {
             want_raw = false; // just in case it got set to true somehow
         }
 
+        if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            if( MyDebug.LOG ) {
+                android.util.Size [] jpeg_r_camera_picture_sizes = configs.getOutputSizes(ImageFormat.JPEG_R);
+                if( jpeg_r_camera_picture_sizes == null ) {
+                    if( MyDebug.LOG )
+                        Log.d(TAG, "JPEG_R sizes: " + Arrays.toString(jpeg_r_camera_picture_sizes));
+                }
+                else {
+                    if( MyDebug.LOG )
+                        Log.d(TAG, "JPEG_R not supported");
+                }
+            }
+        }
+
         ae_fps_ranges = new ArrayList<>();
         for (Range<Integer> r : characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)) {
             ae_fps_ranges.add(new int[] {r.getLower(), r.getUpper()});
@@ -2995,7 +3062,15 @@ public class CameraController2 extends CameraController {
         }
 
         if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ) {
-            List<Integer> extensions = extension_characteristics.getSupportedExtensions();
+            List<Integer> extensions = null;
+            try {
+                extensions = extension_characteristics.getSupportedExtensions();
+            }
+            catch(Exception e) {
+                // have IllegalArgumentException at least from Google Play crashes
+                if( MyDebug.LOG )
+                    Log.e(TAG, "exception from getSupportedExtensions");
+            }
             if( extensions != null ) {
                 camera_features.supported_extensions = new ArrayList<>();
                 camera_features.supported_extensions_zoom = new ArrayList<>();
@@ -3003,72 +3078,86 @@ public class CameraController2 extends CameraController {
                     if( MyDebug.LOG )
                         Log.d(TAG, "vendor extension: " + extension);
 
-                    // we assume that the allowed extension sizes are a subset of the full sizes - makes things easier to manage
+                    try {
+                        // we assume that the allowed extension sizes are a subset of the full sizes - makes things easier to manage
 
-                    List<android.util.Size> extension_picture_sizes = extension_characteristics.getExtensionSupportedSizes(extension, ImageFormat.JPEG);
-                    if( MyDebug.LOG )
-                        Log.d(TAG, "    extension_picture_sizes: " + extension_picture_sizes);
-                    boolean has_picture_resolution = false;
-                    for(CameraController.Size size : camera_features.picture_sizes) {
-                        if( extension_picture_sizes.contains(new android.util.Size(size.width, size.height)) ) {
-                            if( MyDebug.LOG ) {
-                                Log.d(TAG, "    picture size supports extension: " + size.width + " , " + size.height);
-                            }
-                            has_picture_resolution = true;
-                            if( size.supported_extensions == null ) {
-                                size.supported_extensions = new ArrayList<>();
-                            }
-                            size.supported_extensions.add(extension);
-                        }
-                        else {
-                            if( MyDebug.LOG ) {
-                                Log.d(TAG, "    picture size does NOT support extension: " + size.width + " , " + size.height);
-                            }
-                        }
-                    }
-
-                    List<android.util.Size> extension_preview_sizes = extension_characteristics.getExtensionSupportedSizes(extension, SurfaceTexture.class);
-                    if( MyDebug.LOG )
-                        Log.d(TAG, "    extension_preview_sizes: " + extension_preview_sizes);
-                    boolean has_preview_resolution = false;
-                    for(CameraController.Size size : camera_features.preview_sizes) {
-                        if( extension_preview_sizes.contains(new android.util.Size(size.width, size.height)) ) {
-                            if( MyDebug.LOG ) {
-                                Log.d(TAG, "    preview size supports extension: " + size.width + " , " + size.height);
-                            }
-                            has_preview_resolution = true;
-                            if( size.supported_extensions == null ) {
-                                size.supported_extensions = new ArrayList<>();
-                            }
-                            size.supported_extensions.add(extension);
-                        }
-                        else {
-                            if( MyDebug.LOG ) {
-                                Log.d(TAG, "    preview size does NOT support extension: " + size.width + " , " + size.height);
-                            }
-                        }
-                    }
-
-                    if( has_picture_resolution && has_preview_resolution ) {
+                        List<android.util.Size> extension_picture_sizes = extension_characteristics.getExtensionSupportedSizes(extension, ImageFormat.JPEG);
                         if( MyDebug.LOG )
-                            Log.d(TAG, "    extension is supported: " + extension);
-                        camera_features.supported_extensions.add(extension);
-
-                        if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ) {
-                            Set<CaptureRequest.Key> extension_supported_request_keys = extension_characteristics.getAvailableCaptureRequestKeys(extension);
-                            for(CaptureRequest.Key<?> key : extension_supported_request_keys) {
-                                if( MyDebug.LOG )
-                                    Log.d(TAG, "    supported capture request key: " + key.getName());
-                                if( key == CaptureRequest.CONTROL_ZOOM_RATIO ) {
-                                    camera_features.supported_extensions_zoom.add(extension);
+                            Log.d(TAG, "    extension_picture_sizes: " + extension_picture_sizes);
+                        boolean has_picture_resolution = false;
+                        for(CameraController.Size size : camera_features.picture_sizes) {
+                            if( extension_picture_sizes.contains(new android.util.Size(size.width, size.height)) ) {
+                                if( MyDebug.LOG ) {
+                                    Log.d(TAG, "    picture size supports extension: " + size.width + " , " + size.height);
+                                }
+                                has_picture_resolution = true;
+                                if( size.supported_extensions == null ) {
+                                    size.supported_extensions = new ArrayList<>();
+                                }
+                                size.supported_extensions.add(extension);
+                            }
+                            else {
+                                if( MyDebug.LOG ) {
+                                    Log.d(TAG, "    picture size does NOT support extension: " + size.width + " , " + size.height);
                                 }
                             }
-                            Set<CaptureResult.Key> extension_supported_result_keys = extension_characteristics.getAvailableCaptureResultKeys(extension);
-                            for(CaptureResult.Key<?> key : extension_supported_result_keys) {
-                                if( MyDebug.LOG )
-                                    Log.d(TAG, "    supported capture result key: " + key.getName());
+                        }
+
+                        List<android.util.Size> extension_preview_sizes = extension_characteristics.getExtensionSupportedSizes(extension, SurfaceTexture.class);
+                        if( MyDebug.LOG )
+                            Log.d(TAG, "    extension_preview_sizes: " + extension_preview_sizes);
+                        boolean has_preview_resolution = false;
+                        for(CameraController.Size size : camera_features.preview_sizes) {
+                            if( extension_preview_sizes.contains(new android.util.Size(size.width, size.height)) ) {
+                                if( MyDebug.LOG ) {
+                                    Log.d(TAG, "    preview size supports extension: " + size.width + " , " + size.height);
+                                }
+                                has_preview_resolution = true;
+                                if( size.supported_extensions == null ) {
+                                    size.supported_extensions = new ArrayList<>();
+                                }
+                                size.supported_extensions.add(extension);
+                            }
+                            else {
+                                if( MyDebug.LOG ) {
+                                    Log.d(TAG, "    preview size does NOT support extension: " + size.width + " , " + size.height);
+                                }
                             }
                         }
+
+                        if( has_picture_resolution && has_preview_resolution ) {
+                            if( MyDebug.LOG )
+                                Log.d(TAG, "    extension is supported: " + extension);
+                            camera_features.supported_extensions.add(extension);
+
+                            if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ) {
+                                Set<CaptureRequest.Key> extension_supported_request_keys = extension_characteristics.getAvailableCaptureRequestKeys(extension);
+                                for(CaptureRequest.Key<?> key : extension_supported_request_keys) {
+                                    if( MyDebug.LOG )
+                                        Log.d(TAG, "    supported capture request key: " + key.getName());
+                                    if( key == CaptureRequest.CONTROL_ZOOM_RATIO ) {
+                                        camera_features.supported_extensions_zoom.add(extension);
+                                    }
+                                }
+                                Set<CaptureResult.Key> extension_supported_result_keys = extension_characteristics.getAvailableCaptureResultKeys(extension);
+                                for(CaptureResult.Key<?> key : extension_supported_result_keys) {
+                                    if( MyDebug.LOG )
+                                        Log.d(TAG, "    supported capture result key: " + key.getName());
+                                }
+                            }
+                            if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ) {
+                                if( MyDebug.LOG ) {
+                                    Log.d(TAG, "    isCaptureProcessProgressAvailable: " + extension_characteristics.isCaptureProcessProgressAvailable(extension));
+                                }
+                            }
+                        }
+                    }
+                    catch(Exception exception) {
+                        // have IllegalArgumentException from getExtensionSupportedSizes() and getAvailableCaptureRequestKeys() at least from Google Play crashes
+                        if( MyDebug.LOG )
+                            Log.e(TAG, "exception trying to query extension: " + extension);
+                        camera_features.supported_extensions.remove(extension);
+                        camera_features.supported_extensions_zoom.remove(extension);
                     }
                 }
             }
@@ -4763,6 +4852,11 @@ public class CameraController2 extends CameraController {
 
     @Override
     public void setZoom(int value) {
+        setZoom(value, -1.0f);
+    }
+
+    @Override
+    public void setZoom(int value, float smooth_zoom) {
         if( zoom_ratios == null ) {
             if( MyDebug.LOG )
                 Log.d(TAG, "zoom not supported");
@@ -4783,7 +4877,21 @@ public class CameraController2 extends CameraController {
                 Log.e(TAG, "invalid zoom value" + value);
             throw new RuntimeException(); // throw as RuntimeException, as this is a programming error
         }
-        float zoom = zoom_ratios.get(value)/100.0f;
+        if( smooth_zoom > 0.0f ) {
+            if( smooth_zoom < zoom_ratios.get(0)/100.0f ) {
+                if( MyDebug.LOG )
+                    Log.e(TAG, "invalid smooth_zoom: " + smooth_zoom);
+                throw new RuntimeException("smooth_zoom too small");
+            }
+            else if( smooth_zoom > zoom_ratios.get(zoom_ratios.size()-1)/100.0f ) {
+                if( MyDebug.LOG )
+                    Log.e(TAG, "invalid smooth_zoom: " + smooth_zoom);
+                throw new RuntimeException("smooth_zoom too large");
+            }
+        }
+        float zoom = smooth_zoom > 0.0f ? smooth_zoom : zoom_ratios.get(value)/100.0f;
+        if( MyDebug.LOG )
+            Log.d(TAG, "zoom to: " + zoom);
 
         if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ) {
             camera_settings.has_control_zoom_ratio = true;
@@ -6421,6 +6529,12 @@ public class CameraController2 extends CameraController {
                 }
                 e.printStackTrace();
             }
+            catch(IllegalStateException e) {
+                if( MyDebug.LOG )
+                    Log.d(TAG, "failed to cancel autofocus [captureSession already closed!]");
+                e.printStackTrace();
+                // got this as a Google Play exception - this means the capture session is already closed
+            }
             previewBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_IDLE);
             this.autofocus_cb = null;
             this.autofocus_time_ms = -1;
@@ -7044,7 +7158,44 @@ public class CameraController2 extends CameraController {
                             Log.d(TAG, "using slow burst");
                         slow_burst_capture_requests = requests;
                         slow_burst_start_ms = System.currentTimeMillis();
-                        captureSession.capture(requests.get(0), previewCaptureCallback, handler);
+                        if( burst_type == BurstType.BURSTTYPE_EXPO ) {
+                            // Set preview to match - some devices (e.g. Samsung Galaxy) don't produce photos with correct exposure if
+                            // the exposure is set to a different value than the preview.
+                            // Although we don't/can't do this for fast burst, doing so here means such devices can use HDR/expo when
+                            // using use_expo_fast_burst==false.
+                            try {
+                                previewBuilder.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF);
+                                previewBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, slow_burst_capture_requests.get(n_burst_taken).get(CaptureRequest.SENSOR_SENSITIVITY));
+                                previewBuilder.set(CaptureRequest.SENSOR_FRAME_DURATION, slow_burst_capture_requests.get(n_burst_taken).get(CaptureRequest.SENSOR_FRAME_DURATION));
+
+                                long exposure_time = slow_burst_capture_requests.get(n_burst_taken).get(CaptureRequest.SENSOR_EXPOSURE_TIME);
+                                if( MyDebug.LOG ) {
+                                    Log.d(TAG, "prepare preview for next exposure: " + exposure_time);
+                                }
+                                previewBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, exposure_time);
+
+                                setRepeatingRequest(previewBuilder.build());
+                            }
+                            catch(CameraAccessException e) {
+                                if( MyDebug.LOG ) {
+                                    Log.e(TAG, "failed to take set exposure for next expo bracketing burst");
+                                    Log.e(TAG, "reason: " + e.getReason());
+                                    Log.e(TAG, "message: " + e.getMessage());
+                                }
+                                e.printStackTrace();
+                                jpeg_todo = false;
+                                raw_todo = false;
+                                picture_cb = null;
+                                push_take_picture_error_cb = take_picture_error_cb;
+                            }
+
+                            postNextSlowBurst();
+                        }
+                        else {
+                            // no need to set preview for first focus bracketing shot, the first focus bracketing always
+                            // has same focus distance as preview
+                            captureSession.capture(requests.get(0), previewCaptureCallback, handler);
+                        }
                     }
 
                     playSound(MediaActionSound.SHUTTER_CLICK); // play shutter sound asap, otherwise user has the illusion of being slow to take photos
@@ -7989,6 +8140,25 @@ public class CameraController2 extends CameraController {
         public void onCaptureResultAvailable(@NonNull CameraExtensionSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
             previewCaptureCallback.updateCachedCaptureResult(result);
         }
+
+        @Override
+        public void onCaptureProcessProgressed(@NonNull CameraExtensionSession session,
+                                               @NonNull CaptureRequest request, @IntRange(from = 0, to = 100) int progress) {
+            if( MyDebug.LOG )
+                Log.d(TAG, "onCaptureProcessProgressed: " + progress);
+
+            final Activity activity = (Activity)context;
+            activity.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if( MyDebug.LOG )
+                        Log.d(TAG, "onCaptureProcessProgressed UI thread: " + progress);
+                    if( picture_cb != null ) {
+                        picture_cb.onExtensionProgress(progress);
+                    }
+                }
+            });
+        }
     }
 
     private final MyCaptureCallback previewCaptureCallback = new MyCaptureCallback();
@@ -8753,6 +8923,9 @@ public class CameraController2 extends CameraController {
             // actual parsing of image data is done in the imageReader's OnImageAvailableListener()
             // need to cancel the autofocus, and restart the preview after taking the photo
             // Camera2Basic does a capture then sets a repeating request - do the same here just to be safe
+            // update: this is also important when we do an expo burst (BURSTTYPE_EXPO) with option
+            // use_expo_fast_burst==false, since that changes the exposure of the preview, so we need to
+            // reset it here
             if( previewBuilder != null ) {
                 previewBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL);
                 if( MyDebug.LOG )

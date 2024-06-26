@@ -589,7 +589,7 @@ public class MyApplicationInterface extends BasicApplicationInterface {
             // set a maximum resolution for modes that require decompressing multiple images for processing,
             // due to risk of running out of memory!
             constraints.has_max_mp = true;
-            constraints.max_mp = 22000000; // max of 22MP
+            constraints.max_mp = 18000000; // max of 18MP
             //constraints.max_mp = 7800000; // test!
             if( main_activity.is_test && test_max_mp != 0 ) {
                 constraints.max_mp = test_max_mp;
@@ -1245,6 +1245,11 @@ public class MyApplicationInterface extends BasicApplicationInterface {
     @Override
     public String getRecordAudioSourcePref() {
         return sharedPreferences.getString(PreferenceKeys.RecordAudioSourcePreferenceKey, "audio_src_camcorder");
+    }
+
+    public boolean getFocusPeakingPref() {
+        String focus_peaking_pref = sharedPreferences.getString(PreferenceKeys.FocusPeakingPreferenceKey, "preference_focus_peaking_off");
+        return !focus_peaking_pref.equals("preference_focus_peaking_off") && main_activity.supportsPreviewBitmaps();
     }
 
     public boolean getAutoStabilisePref() {
@@ -2629,6 +2634,7 @@ public class MyApplicationInterface extends BasicApplicationInterface {
     @Override
     public void onFailedStartPreview() {
         main_activity.getPreview().showToast(null, R.string.failed_to_start_camera_preview);
+        main_activity.enablePausePreviewOnBackPressedCallback(false); // reenable standard back button behaviour (in case preview was paused due to option to pause preview after taking a photo)
     }
 
     @Override
@@ -2710,11 +2716,13 @@ public class MyApplicationInterface extends BasicApplicationInterface {
         if( paused ) {
             shareButton.setVisibility(View.VISIBLE);
             trashButton.setVisibility(View.VISIBLE);
+            main_activity.enablePausePreviewOnBackPressedCallback(true); // so that pressing back button instead unpauses the preview
         }
         else {
             shareButton.setVisibility(View.GONE);
             trashButton.setVisibility(View.GONE);
             this.clearLastImages();
+            main_activity.enablePausePreviewOnBackPressedCallback(false); // reenable standard back button behaviour
         }
     }
 
@@ -2757,6 +2765,9 @@ public class MyApplicationInterface extends BasicApplicationInterface {
         if( MyDebug.LOG )
             Log.d(TAG, "onPictureCompleted");
 
+        // clear any toasts displayed during progress (e.g., preference_nr_mode_low_light_message, or onExtensionProgress())
+        main_activity.getPreview().clearActiveFakeToast();
+
         PhotoMode photo_mode = getPhotoMode();
         if( main_activity.getPreview().isVideo() ) {
             if( MyDebug.LOG )
@@ -2797,6 +2808,15 @@ public class MyApplicationInterface extends BasicApplicationInterface {
         // call this, so that if pause-preview-after-taking-photo option is set, we remove the "taking photo" border indicator straight away
         // also even for normal (not pausing) behaviour, good to remove the border asap
         drawPreview.cameraInOperation(false);
+    }
+
+    @Override
+    public void onExtensionProgress(int progress) {
+        String message = "";
+        if( getPhotoMode() == PhotoMode.X_Night ) {
+            message = getContext().getResources().getString(R.string.preference_nr_mode_low_light_message) + "\n";
+        }
+        main_activity.getPreview().showToast(null, message + progress + "%", true);
     }
 
     @Override
@@ -3113,7 +3133,7 @@ public class MyApplicationInterface extends BasicApplicationInterface {
     }
 
     public int drawTextWithBackground(Canvas canvas, Paint paint, String text, int foreground, int background, int location_x, int location_y, Alignment alignment_y, String ybounds_text, Shadow shadow, Rect bounds) {
-        final float scale = getContext().getResources().getDisplayMetrics().density;
+        final float scale = getContext().getResources().getDisplayMetrics().scaledDensity; // important to use scaledDensity for scaling font sizes
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(background);
         paint.setAlpha(64);

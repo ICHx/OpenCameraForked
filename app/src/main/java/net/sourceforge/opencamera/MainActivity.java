@@ -26,6 +26,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import android.Manifest;
+import android.app.Fragment;
 import android.content.pm.PackageInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -45,6 +46,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
+import android.preference.Preference;
+import android.preference.PreferenceFragment;
 import android.preference.PreferenceManager;
 import android.provider.MediaStore;
 import android.animation.ArgbEvaluator;
@@ -65,11 +68,14 @@ import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.renderscript.RenderScript;
 import android.speech.tts.TextToSpeech;
+
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
 import androidx.core.content.ContextCompat;
 import androidx.exifinterface.media.ExifInterface;
 
+import android.text.Html;
 import android.text.InputFilter;
 import android.text.InputType;
 import android.text.Spanned;
@@ -89,6 +95,7 @@ import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.WindowManager;
+import android.view.animation.AccelerateDecelerateInterpolator;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.SeekBar;
@@ -99,7 +106,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 /** The main Activity for Open Camera.
  */
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements PreferenceFragment.OnPreferenceStartFragmentCallback {
     private static final String TAG = "MainActivity";
 
     private static int activity_count = 0;
@@ -172,6 +179,7 @@ public class MainActivity extends AppCompatActivity {
     private final ToastBoxer store_location_toast = new ToastBoxer();
     private boolean block_startup_toast = false; // used when returning from Settings/Popup - if we're displaying a toast anyway, don't want to display the info toast too
     private String push_info_toast_text; // can be used to "push" extra text to the info text for showPhotoVideoToast()
+    private boolean push_switched_camera = false; // whether to display animation for switching front/back cameras
 
     // application shortcuts:
     static private final String ACTION_SHORTCUT_CAMERA = "net.sourceforge.opencamera.SHORTCUT_CAMERA";
@@ -273,7 +281,6 @@ public class MainActivity extends AppCompatActivity {
         // risk of running out of memory on lower end devices, due to manipulation of large bitmaps
         ActivityManager activityManager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
         if( MyDebug.LOG ) {
-            Log.d(TAG, "standard max memory = " + activityManager.getMemoryClass() + "MB");
             Log.d(TAG, "large max memory = " + activityManager.getLargeMemoryClass() + "MB");
         }
         large_heap_memory = activityManager.getLargeMemoryClass();
@@ -285,8 +292,7 @@ public class MainActivity extends AppCompatActivity {
 
         // hack to rule out phones unlikely to have 4K video, so no point even offering the option!
         // both S5 and Note 3 have 128MB standard and 512MB large heap (tested via Samsung RTL), as does Galaxy K Zoom
-        // also added the check for having 128MB standard heap, to support modded LG G2, which has 128MB standard, 256MB large - see https://sourceforge.net/p/opencamera/tickets/9/
-        if( activityManager.getMemoryClass() >= 128 || activityManager.getLargeMemoryClass() >= 512 ) {
+        if( activityManager.getLargeMemoryClass() >= 512 ) {
             supports_force_video_4k = true;
         }
         if( MyDebug.LOG )
@@ -320,8 +326,15 @@ public class MainActivity extends AppCompatActivity {
             setDeviceDefaults();
         }
 
-        // set up window flags for normal operation
-        setWindowFlagsForCamera();
+        boolean settings_is_open = settingsIsOpen();
+        if( MyDebug.LOG )
+            Log.d(TAG, "settings_is_open?: " + settings_is_open);
+        // settings_is_open==true can happen if application is recreated when settings is open
+        // to reproduce: go to settings, then turn screen off and on (and unlock)
+        if( !settings_is_open ) {
+            // set up window flags for normal operation
+            setWindowFlagsForCamera();
+        }
         if( MyDebug.LOG )
             Log.d(TAG, "onCreate: time after setting window flags: " + (System.currentTimeMillis() - debug_time));
 
@@ -363,6 +376,11 @@ public class MainActivity extends AppCompatActivity {
         preview = new Preview(applicationInterface, (this.findViewById(R.id.preview)));
         if( MyDebug.LOG )
             Log.d(TAG, "onCreate: time after creating preview: " + (System.currentTimeMillis() - debug_time));
+
+        if( settings_is_open ) {
+            // must be done after creating preview
+            setWindowFlagsForSettings();
+        }
 
         if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2 ) {
             // don't show orientation animations
@@ -556,6 +574,31 @@ public class MainActivity extends AppCompatActivity {
                 return true;
             }
         });
+
+        // set up switch camera button long click - must be done after setting is_multi_cam
+        if( n_cameras > 2 ) {
+            View.OnLongClickListener long_click_listener = new View.OnLongClickListener() {
+                @Override
+                public boolean onLongClick(View v) {
+                    if( !allowLongPress() ) {
+                        // return false, so a regular click will still be triggered when the user releases the touch
+                        return false;
+                    }
+                    longClickedSwitchMultiCamera();
+                    return true;
+                }
+            };
+            switchCameraButton.setOnLongClickListener(long_click_listener);
+
+            /* Some multi-camera devices might not show the switch_multi_camera icon, e.g.:
+                   Device only has e.g. back cameras but has 3 or more of them
+                   Device has e.g. 2 back cameras and 1 front camera, and the current camera is the front camera.
+               It seems simpler to just allow long pressing on either of these icons.
+             */
+            View switchMultiCameraButton = findViewById(R.id.switch_multi_camera);
+            switchMultiCameraButton.setOnLongClickListener(long_click_listener);
+        }
+
         if( MyDebug.LOG )
             Log.d(TAG, "onCreate: time after setting long click listeners: " + (System.currentTimeMillis() - debug_time));
 
@@ -615,7 +658,7 @@ public class MainActivity extends AppCompatActivity {
                     // E.g., we have a "What's New" for 1.44 (64), but then push out a quick fix for 1.44.1 (65). We don't want to
                     // show the dialog again to people who already received 1.44 (64), but we still want to show the dialog to people
                     // upgrading from earlier versions.
-                    int whats_new_version = 88; // 1.52
+                    int whats_new_version = 89; // 1.53
                     whats_new_version = Math.min(whats_new_version, version_code); // whats_new_version should always be <= version_code, but just in case!
                     if( MyDebug.LOG ) {
                         Log.d(TAG, "whats_new_version: " + whats_new_version);
@@ -684,6 +727,14 @@ public class MainActivity extends AppCompatActivity {
                 });
             }
         }).start();
+
+        // handle on back behaviour
+        popupOnBackPressedCallback = new PopupOnBackPressedCallback(false);
+        this.getOnBackPressedDispatcher().addCallback(this, popupOnBackPressedCallback);
+        pausePreviewOnBackPressedCallback = new PausePreviewOnBackPressedCallback(false);
+        this.getOnBackPressedDispatcher().addCallback(this, pausePreviewOnBackPressedCallback);
+        screenLockOnBackPressedCallback = new ScreenLockOnBackPressedCallback(false);
+        this.getOnBackPressedDispatcher().addCallback(this, screenLockOnBackPressedCallback);
 
         // create notification channel - only needed on Android 8+
         // update: notifications now removed due to needing permissions on Android 13+
@@ -780,6 +831,7 @@ public class MainActivity extends AppCompatActivity {
     void setDeviceDefaults() {
         if( MyDebug.LOG )
             Log.d(TAG, "setDeviceDefaults");
+        boolean is_samsung = Build.MANUFACTURER.toLowerCase(Locale.US).contains("samsung");
         //SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
         //boolean is_samsung = Build.MANUFACTURER.toLowerCase(Locale.US).contains("samsung");
         //boolean is_oneplus = Build.MANUFACTURER.toLowerCase(Locale.US).contains("oneplus");
@@ -813,9 +865,19 @@ public class MainActivity extends AppCompatActivity {
 			if( MyDebug.LOG )
 				Log.d(TAG, "disable fast burst for camera2");
 			SharedPreferences.Editor editor = sharedPreferences.edit();
-			editor.putBoolean(PreferenceKeys.getCamera2FastBurstPreferenceKey(), false);
+			editor.putBoolean(PreferenceKeys.Camera2FastBurstPreferenceKey, false);
 			editor.apply();
 		}*/
+        if( is_samsung && !is_test ) {
+            // Samsung Galaxy devices (including S10e, S24) have problems with HDR/expo - base images come out with wrong exposures.
+            // This can be fixed by not using fast bast, allowing us to adjust the preview exposure to match.
+            if( MyDebug.LOG )
+                Log.d(TAG, "disable fast burst for camera2");
+            SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
+            SharedPreferences.Editor editor = sharedPreferences.edit();
+            editor.putBoolean(PreferenceKeys.Camera2FastBurstPreferenceKey, false);
+            editor.apply();
+        }
         if( supports_camera2 && !is_test ) {
             // n.b., when testing, we explicitly decide whether to run with Camera2 API or not
             CameraControllerManager2 manager2 = new CameraControllerManager2(this);
@@ -833,7 +895,6 @@ public class MainActivity extends AppCompatActivity {
                 boolean default_to_camera2 = false;
                 boolean is_google = Build.MANUFACTURER.toLowerCase(Locale.US).contains("google");
                 boolean is_nokia = Build.MANUFACTURER.toLowerCase(Locale.US).contains("hmd global");
-                boolean is_samsung = Build.MANUFACTURER.toLowerCase(Locale.US).contains("samsung");
                 if( is_google && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S )
                     default_to_camera2 = true;
                 else if( is_nokia && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P )
@@ -1573,6 +1634,8 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
+        push_switched_camera = false; // just in case
+
         if( MyDebug.LOG ) {
             Log.d(TAG, "onResume: total time to resume: " + (System.currentTimeMillis() - debug_time));
         }
@@ -1884,12 +1947,19 @@ public class MainActivity extends AppCompatActivity {
         applicationInterface.getImageSaver().waitUntilDone();
     }
 
+    /**
+     * @return True if the long-click is handled, otherwise return false to indicate that regular
+     * click should still be triggered when the user releases the touch.
+     */
     private boolean longClickedTakePhoto() {
         if( MyDebug.LOG )
             Log.d(TAG, "longClickedTakePhoto");
-        // need to check whether fast burst is supported (including for the current resolution),
-        // in case we're in Standard photo mode
-        if( supportsFastBurst() ) {
+        if( preview.isVideo() ) {
+            // no long-click action for video mode
+        }
+        else if( supportsFastBurst() ) {
+            // need to check whether fast burst is supported (including for the current resolution),
+            // in case we're in Standard photo mode
             CameraController.Size current_size = preview.getCurrentPictureSize();
             if( current_size != null && current_size.supports_burst ) {
                 MyApplicationInterface.PhotoMode photo_mode = applicationInterface.getPhotoMode();
@@ -2069,6 +2139,25 @@ public class MainActivity extends AppCompatActivity {
         mainUI.updateStampIcon();
         applicationInterface.getDrawPreview().updateSettings();
         preview.showToast(stamp_toast, value ? R.string.stamp_enabled : R.string.stamp_disabled, true);
+    }
+
+    public void clickedFocusPeaking(View view) {
+        clickedFocusPeaking();
+    }
+
+    public void clickedFocusPeaking() {
+        if( MyDebug.LOG )
+            Log.d(TAG, "clickedFocusPeaking");
+        boolean value = applicationInterface.getFocusPeakingPref();
+        value = !value;
+
+        final SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
+        SharedPreferences.Editor editor = sharedPreferences.edit();
+        editor.putString(PreferenceKeys.FocusPeakingPreferenceKey, value ? "preference_focus_peaking_on" : "preference_focus_peaking_off");
+        editor.apply();
+
+        mainUI.updateFocusPeakingIcon();
+        applicationInterface.getDrawPreview().updateSettings(); // needed to update focus peaking
     }
 
     public void clickedAutoLevel(View view) {
@@ -2331,6 +2420,8 @@ public class MainActivity extends AppCompatActivity {
                 preview.clearActiveFakeToast();
             }
             userSwitchToCamera(cameraId);
+
+            push_switched_camera = true;
         }
     }
 
@@ -2352,6 +2443,69 @@ public class MainActivity extends AppCompatActivity {
             pushCameraIdToast(cameraId);
             userSwitchToCamera(cameraId);
         }
+    }
+
+    /** User can long-click on switch multi cam icon to bring up a menu to switch to any camera.
+     */
+    private void longClickedSwitchMultiCamera() {
+        if( MyDebug.LOG )
+            Log.d(TAG, "longClickedSwitchMultiCamera");
+
+        showPreview(false);
+        AlertDialog.Builder alertDialog = new AlertDialog.Builder(this);
+        alertDialog.setTitle(R.string.choose_camera);
+
+        int n_cameras = preview.getCameraControllerManager().getNumberOfCameras();
+        CharSequence [] items = new CharSequence[n_cameras];
+        int index=0;
+        int curr_camera_id = getActualCameraId();
+        // history is stored in order most-recent-last
+        for(int i=0;i<n_cameras;i++) {
+            String camera_name = i + ": " + preview.getCameraControllerManager().getDescription(this, i);
+            if( i == curr_camera_id ) {
+                String html_camera_name = "<b>[" + camera_name + "]</b>";
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    items[index++] = Html.fromHtml(html_camera_name, Html.FROM_HTML_MODE_LEGACY);
+                }
+                else {
+                    items[index++] = Html.fromHtml(html_camera_name);
+                }
+            }
+            else
+                items[index++] = camera_name;
+        }
+
+        alertDialog.setItems(items, new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                if( MyDebug.LOG )
+                    Log.d(TAG, "selected: " + which);
+                int n_cameras = preview.getCameraControllerManager().getNumberOfCameras();
+                if( which >= 0 && which < n_cameras ) {
+                    if( preview.isOpeningCamera() ) {
+                        if( MyDebug.LOG )
+                            Log.d(TAG, "already opening camera in background thread");
+                        return;
+                    }
+                    MainActivity.this.closePopup();
+                    if( MainActivity.this.preview.canSwitchCamera() ) {
+                        pushCameraIdToast(which);
+                        userSwitchToCamera(which);
+                    }
+                }
+                setWindowFlagsForCamera();
+                showPreview(true);
+            }
+        });
+        alertDialog.setOnCancelListener(new DialogInterface.OnCancelListener() {
+            @Override
+            public void onCancel(DialogInterface arg0) {
+                setWindowFlagsForCamera();
+                showPreview(true);
+            }
+        });
+        setWindowFlagsForSettings(true); // set set_lock_protect to false - no need to protect this dialog with lock screen (fine to run above lock screen if that option is set)
+        showAlert(alertDialog.create());
     }
 
     /**
@@ -2413,7 +2567,7 @@ public class MainActivity extends AppCompatActivity {
     public void clickedSettings(View view) {
         if( MyDebug.LOG )
             Log.d(TAG, "clickedSettings");
-        openSettings();
+        KeyguardUtils.requireKeyguard(this, this::openSettings);
     }
 
     public boolean popupIsOpen() {
@@ -2647,12 +2801,17 @@ public class MainActivity extends AppCompatActivity {
     public void openSettings() {
         if( MyDebug.LOG )
             Log.d(TAG, "openSettings");
-        closePopup();
+        closePopup(); // important to close the popup to avoid confusing with back button callbacks
         preview.cancelTimer(); // best to cancel any timer, in case we take a photo while settings window is open, or when changing settings
         preview.cancelRepeat(); // similarly cancel the auto-repeat mode!
         preview.stopVideo(false); // important to stop video, as we'll be changing camera parameters when the settings window closes
         applicationInterface.stopPanorama(true); // important to stop panorama recording, as we might end up as we'll be changing camera parameters when the settings window closes
         stopAudioListeners();
+        // close back handler callbacks (so back button is enabled again when going to settings) - in theory shouldn't be needed as all of these should
+        // be disabled now, but just in case:
+        this.enablePopupOnBackPressedCallback(false);
+        this.enablePausePreviewOnBackPressedCallback(false);
+        this.enableScreenLockOnBackPressedCallback(false);
 
         Bundle bundle = new Bundle();
         bundle.putInt("cameraId", this.preview.getCameraId());
@@ -2897,6 +3056,45 @@ public class MainActivity extends AppCompatActivity {
         // use commitAllowingStateLoss() instead of commit(), does to "java.lang.IllegalStateException: Can not perform this action after onSaveInstanceState" crash seen on Google Play
         // see http://stackoverflow.com/questions/7575921/illegalstateexception-can-not-perform-this-action-after-onsaveinstancestate-wit
         getFragmentManager().beginTransaction().add(android.R.id.content, fragment, "PREFERENCE_FRAGMENT").addToBackStack(null).commitAllowingStateLoss();
+    }
+
+    @Override
+    public boolean onPreferenceStartFragment(PreferenceFragment caller, Preference pref) {
+        if( MyDebug.LOG ) {
+            Log.d(TAG, "onPreferenceStartFragment");
+            Log.d(TAG, "pref: " + pref.getFragment());
+        }
+
+        // instantiate the new fragment
+        //final Bundle args = pref.getExtras();
+        // we want to pass the caller preference fragment's bundle to the new sub-screen (this will be a
+        // copy of the bundle originally created in openSettings()
+        final Bundle args = new Bundle(caller.getArguments());
+
+        final Fragment fragment = Fragment.instantiate(this, pref.getFragment(), args);
+        fragment.setTargetFragment(caller, 0);
+        if( MyDebug.LOG )
+            Log.d(TAG, "replace fragment");
+        /*getFragmentManager().beginTransaction()
+                .replace(R.id.content, fragment)
+                .addToBackStack(null)
+                .commit();*/
+        getFragmentManager().beginTransaction().add(android.R.id.content, fragment, "PREFERENCE_FRAGMENT_"+pref.getFragment()).addToBackStack(null).commitAllowingStateLoss();
+
+        /*
+        // AndroidX version:
+        final Fragment fragment = getSupportFragmentManager().getFragmentFactory().instantiate(
+                getClassLoader(),
+                pref.getFragment());
+        fragment.setArguments(args);
+        fragment.setTargetFragment(caller, 0);
+        // replace the existing fragment with the new fragment:
+        getSupportFragmentManager().beginTransaction()
+                .replace(R.id.content, fragment)
+                .addToBackStack(null)
+                .commit();
+         */
+        return true;
     }
 
     public void updateForSettings(boolean update_camera) {
@@ -3155,6 +3353,11 @@ public class MainActivity extends AppCompatActivity {
             changed = changed || (button.getVisibility() != View.GONE);
             button.setVisibility(View.GONE);
         }
+        if( !mainUI.showFocusPeakingIcon() ) {
+            View button = findViewById(R.id.focus_peaking);
+            changed = changed || (button.getVisibility() != View.GONE);
+            button.setVisibility(View.GONE);
+        }
         if( !mainUI.showAutoLevelIcon() ) {
             View button = findViewById(R.id.auto_level);
             changed = changed || (button.getVisibility() != View.GONE);
@@ -3192,7 +3395,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** Call when the settings is going to be closed.
      */
-    private void settingsClosing() {
+    void settingsClosing() {
         if( MyDebug.LOG )
             Log.d(TAG, "close settings");
         setWindowFlagsForCamera();
@@ -3232,7 +3435,110 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    @Override
+    private PopupOnBackPressedCallback popupOnBackPressedCallback;
+
+    private class PopupOnBackPressedCallback extends OnBackPressedCallback {
+        public PopupOnBackPressedCallback(boolean enabled) {
+            super(enabled);
+        }
+
+        @Override
+        public void handleOnBackPressed() {
+            if( MyDebug.LOG )
+                Log.d(TAG, "PopupOnBackPressedCallback.handleOnBackPressed");
+            if( popupIsOpen() ) {
+                // close popup will disable the PopupOnBackPressedCallback, so no need to do it here
+                closePopup();
+            }
+            else {
+                // shouldn't be here (if popup isn't open, this callback shouldn't be enabled), but just in case
+                if( MyDebug.LOG )
+                    Log.e(TAG, "PopupOnBackPressedCallback was enabled but popup menu not open?!");
+                this.setEnabled(false);
+                MainActivity.this.onBackPressed();
+            }
+        }
+    }
+
+    public void enablePopupOnBackPressedCallback(boolean enabled) {
+        if( MyDebug.LOG )
+            Log.d(TAG, "enablePopupOnBackPressedCallback: " + enabled);
+        if( popupOnBackPressedCallback != null ) {
+            popupOnBackPressedCallback.setEnabled(enabled);
+        }
+    }
+
+    private PausePreviewOnBackPressedCallback pausePreviewOnBackPressedCallback;
+
+    private class PausePreviewOnBackPressedCallback extends OnBackPressedCallback {
+        public PausePreviewOnBackPressedCallback(boolean enabled) {
+            super(enabled);
+        }
+
+        @Override
+        public void handleOnBackPressed() {
+            if( MyDebug.LOG )
+                Log.d(TAG, "PausePreviewOnBackPressedCallback.handleOnBackPressed");
+
+            if( preview != null && preview.isPreviewPaused() ) {
+                // starting the preview will disable the PausePreviewOnBackPressedCallback, so no need to do it here
+                if( MyDebug.LOG )
+                    Log.d(TAG, "preview was paused, so unpause it");
+                preview.startCameraPreview();
+            }
+            else {
+                // shouldn't be here (if preview isn't paused, this callback shouldn't be enabled), but just in case
+                if( MyDebug.LOG )
+                    Log.e(TAG, "PausePreviewOnBackPressedCallback was enabled but preview not paused?!");
+                this.setEnabled(false);
+                MainActivity.this.onBackPressed();
+            }
+        }
+    }
+
+    public void enablePausePreviewOnBackPressedCallback(boolean enabled) {
+        if( MyDebug.LOG )
+            Log.d(TAG, "enablePausePreviewOnBackPressedCallback: " + enabled);
+        if( pausePreviewOnBackPressedCallback != null ) {
+            pausePreviewOnBackPressedCallback.setEnabled(enabled);
+        }
+    }
+
+    private ScreenLockOnBackPressedCallback screenLockOnBackPressedCallback;
+
+    private class ScreenLockOnBackPressedCallback extends OnBackPressedCallback {
+        public ScreenLockOnBackPressedCallback(boolean enabled) {
+            super(enabled);
+        }
+
+        @Override
+        public void handleOnBackPressed() {
+            if( MyDebug.LOG )
+                Log.d(TAG, "ScreenLockOnBackPressedCallback.handleOnBackPressed");
+
+            if( screen_is_locked ) {
+                preview.showToast(screen_locked_toast, R.string.screen_is_locked);
+            }
+            else {
+                // shouldn't be here (if screen isn't locked, this callback shouldn't be enabled), but just in case
+                if( MyDebug.LOG )
+                    Log.e(TAG, "ScreenLockOnBackPressedCallback was enabled but screen isn't locked?!");
+                this.setEnabled(false);
+                MainActivity.this.onBackPressed();
+            }
+        }
+    }
+
+    private void enableScreenLockOnBackPressedCallback(boolean enabled) {
+        if( MyDebug.LOG )
+            Log.d(TAG, "enableScreenLockOnBackPressedCallback: " + enabled);
+        if( screenLockOnBackPressedCallback != null ) {
+            screenLockOnBackPressedCallback.setEnabled(enabled);
+        }
+    }
+
+    // should no longer use onBackPressed() - instead use OnBackPressedCallback, for upcoming changes in Android 14+ (predictive back gestures)
+    /*@Override
     public void onBackPressed() {
         if( MyDebug.LOG )
             Log.d(TAG, "onBackPressed");
@@ -3240,6 +3546,7 @@ public class MainActivity extends AppCompatActivity {
             preview.showToast(screen_locked_toast, R.string.screen_is_locked);
             return;
         }
+
         if( settingsIsOpen() ) {
             settingsClosing();
         }
@@ -3256,7 +3563,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         super.onBackPressed();
-    }
+    }*/
 
     /** Whether to allow the application to show under the navigation bar, or not.
      *  Arguably we could enable this all the time, but in practice we only enable for cases when
@@ -3759,6 +4066,8 @@ public class MainActivity extends AppCompatActivity {
 
         // similarly we close the camera
         preview.onPause(false);
+
+        push_switched_camera = false; // just in case
     }
 
     private void showWhenLocked(boolean show) {
@@ -3874,9 +4183,12 @@ public class MainActivity extends AppCompatActivity {
      *  MediaStore uris, as well as allowing control over the resolution of the thumbnail.
      *  If sample_factor is 1, this returns a bitmap scaled to match the display resolution. If
      *  sample_factor is greater than 1, it will be scaled down to a lower resolution.
-     * @param exif_rotate Whether the rotate the bitmap due to exif orientation.
+     *  We now use this for photos in preference to APIs like
+     *  MediaStore.Images.Thumbnails.getThumbnail(). Advantages are simplifying the code, reducing
+     *  number of different codepaths, but also seems to help against device specific bugs
+     *  in getThumbnail() e.g. Pixel 6 Pro with x-night in portrait.
      */
-    private Bitmap loadThumbnailFromUri(Uri uri, int sample_factor, boolean exif_rotate) {
+    private Bitmap loadThumbnailFromUri(Uri uri, int sample_factor) {
         Bitmap thumbnail = null;
         try {
             //thumbnail = MediaStore.Images.Media.getBitmap(getContentResolver(), media.uri);
@@ -3933,9 +4245,7 @@ public class MainActivity extends AppCompatActivity {
             }
             is.close();
 
-            if( exif_rotate ) {
-                thumbnail = rotateForExif(thumbnail, uri);
-            }
+            thumbnail = rotateForExif(thumbnail, uri);
         }
         catch(IOException e) {
             Log.e(TAG, "failed to load bitmap for ghost image last");
@@ -4016,7 +4326,6 @@ public class MainActivity extends AppCompatActivity {
                     Log.d(TAG, "doInBackground");
                 StorageUtils.Media media = applicationInterface.getStorageUtils().getLatestMedia();
                 Bitmap thumbnail = null;
-                boolean rotate_for_orientation = true; // whether we should apply the media.orientation rotation
                 KeyguardManager keyguard_manager = (KeyguardManager)MainActivity.this.getSystemService(Context.KEYGUARD_SERVICE);
                 boolean is_locked = keyguard_manager != null && keyguard_manager.inKeyguardRestrictedInputMode();
                 if( MyDebug.LOG )
@@ -4031,92 +4340,62 @@ public class MainActivity extends AppCompatActivity {
                     if( ghost_image_last && !media.video ) {
                         if( MyDebug.LOG )
                             Log.d(TAG, "load full size bitmap for ghost image last photo");
-                        // if media.mediastore, we'll rotate below using the media.orientation
-                        thumbnail = loadThumbnailFromUri(media.uri, 1, !media.mediastore);
+                        // use sample factor of 1 so that it's full size for ghost image
+                        thumbnail = loadThumbnailFromUri(media.uri, 1);
                     }
                     if( thumbnail == null ) {
                         try {
-                            if( !media.mediastore ) {
-                                if( media.video ) {
-                                    if( MyDebug.LOG )
-                                        Log.d(TAG, "load thumbnail for video from SAF uri");
-                                    ParcelFileDescriptor pfd_saf = null; // keep a reference to this as long as retriever, to avoid risk of pfd_saf being garbage collected
-                                    MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+                            if( !media.video ) {
+                                if( MyDebug.LOG )
+                                    Log.d(TAG, "load thumbnail for photo");
+                                // use sample factor as this image is only used for thumbnail; and
+                                // unlike code in MyApplicationInterface.saveImage() we don't need to
+                                // worry about the thumbnail animation when taking/saving a photo
+                                thumbnail = loadThumbnailFromUri(media.uri, 8);
+                            }
+                            else if( !media.mediastore ) {
+                                if( MyDebug.LOG )
+                                    Log.d(TAG, "load thumbnail for video from SAF uri");
+                                ParcelFileDescriptor pfd_saf = null; // keep a reference to this as long as retriever, to avoid risk of pfd_saf being garbage collected
+                                MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+                                try {
+                                    pfd_saf = getContentResolver().openFileDescriptor(media.uri, "r");
+                                    retriever.setDataSource(pfd_saf.getFileDescriptor());
+                                    thumbnail = retriever.getFrameAtTime(-1);
+                                }
+                                catch(Exception e) {
+                                    Log.d(TAG, "failed to load video thumbnail");
+                                    e.printStackTrace();
+                                }
+                                finally {
                                     try {
-                                        pfd_saf = getContentResolver().openFileDescriptor(media.uri, "r");
-                                        retriever.setDataSource(pfd_saf.getFileDescriptor());
-                                        thumbnail = retriever.getFrameAtTime(-1);
+                                        retriever.release();
                                     }
-                                    catch(Exception e) {
-                                        Log.d(TAG, "failed to load video thumbnail");
+                                    catch(RuntimeException ex) {
+                                        // ignore
+                                    }
+                                    try {
+                                        if( pfd_saf != null ) {
+                                            pfd_saf.close();
+                                        }
+                                    }
+                                    catch(IOException e) {
                                         e.printStackTrace();
                                     }
-                                    finally {
-                                        try {
-                                            retriever.release();
-                                        }
-                                        catch(RuntimeException ex) {
-                                            // ignore
-                                        }
-                                        try {
-                                            if( pfd_saf != null ) {
-                                                pfd_saf.close();
-                                            }
-                                        }
-                                        catch(IOException e) {
-                                            e.printStackTrace();
-                                        }
-                                    }
                                 }
-                                else {
-                                    if( MyDebug.LOG )
-                                        Log.d(TAG, "load thumbnail for photo from SAF uri");
-                                    thumbnail = loadThumbnailFromUri(media.uri, 4, true);
-                                }
-                            }
-                            else if( media.video ) {
-                                if( MyDebug.LOG )
-                                    Log.d(TAG, "load thumbnail for video");
-                                thumbnail = MediaStore.Video.Thumbnails.getThumbnail(getContentResolver(), media.id, MediaStore.Video.Thumbnails.MINI_KIND, null);
                             }
                             else {
                                 if( MyDebug.LOG )
-                                    Log.d(TAG, "load thumbnail for photo");
-                                thumbnail = MediaStore.Images.Thumbnails.getThumbnail(getContentResolver(), media.id, MediaStore.Images.Thumbnails.MINI_KIND, null);
-                                if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ) {
-                                    // MediaStore.Images.Thumbnails.getThumbnail() is documented that as of Android Q, we no longer need to apply the orientation
-                                    rotate_for_orientation = false;
-                                }
+                                    Log.d(TAG, "load thumbnail for video");
+                                thumbnail = MediaStore.Video.Thumbnails.getThumbnail(getContentResolver(), media.id, MediaStore.Video.Thumbnails.MINI_KIND, null);
                             }
                         }
                         catch(Throwable exception) {
                             // have had Google Play NoClassDefFoundError crashes from getThumbnail() for Galaxy Ace4 (vivalto3g), Galaxy S Duos3 (vivalto3gvn)
                             // also NegativeArraySizeException - best to catch everything
                             if( MyDebug.LOG )
-                                Log.e(TAG, "exif orientation exception");
+                                Log.e(TAG, "thumbnail exception");
                             exception.printStackTrace();
-                        }
-                    }
-                    if( thumbnail != null && rotate_for_orientation ) {
-                        if( MyDebug.LOG )
-                            Log.d(TAG, "thumbnail orientation is " + media.orientation);
-                        if( media.orientation != 0 ) {
-                            if( MyDebug.LOG )
-                                Log.d(TAG, "thumbnail size is " + thumbnail.getWidth() + " x " + thumbnail.getHeight());
-                            Matrix matrix = new Matrix();
-                            matrix.setRotate(media.orientation, thumbnail.getWidth() * 0.5f, thumbnail.getHeight() * 0.5f);
-                            try {
-                                Bitmap rotated_thumbnail = Bitmap.createBitmap(thumbnail, 0, 0, thumbnail.getWidth(), thumbnail.getHeight(), matrix, true);
-                                // careful, as rotated_thumbnail is sometimes not a copy!
-                                if( rotated_thumbnail != thumbnail ) {
-                                    thumbnail.recycle();
-                                    thumbnail = rotated_thumbnail;
-                                }
-                            }
-                            catch(Throwable t) {
-                                if( MyDebug.LOG )
-                                    Log.d(TAG, "failed to rotate thumbnail");
-                            }
                         }
                     }
                 }
@@ -5020,6 +5299,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         screen_is_locked = true;
+        this.enableScreenLockOnBackPressedCallback(true); // also disable back button
     }
 
     /** Unlock the screen (see lockScreen()).
@@ -5027,6 +5307,7 @@ public class MainActivity extends AppCompatActivity {
     void unlockScreen() {
         findViewById(R.id.locker).setOnTouchListener(null);
         screen_is_locked = false;
+        this.enableScreenLockOnBackPressedCallback(false); // reenable back button
     }
 
     /** Whether the screen is locked (see lockScreen()).
@@ -5040,7 +5321,7 @@ public class MainActivity extends AppCompatActivity {
      */
     private class MyGestureDetector extends SimpleOnGestureListener {
         @Override
-        public boolean onFling(@NonNull MotionEvent e1, @NonNull MotionEvent e2, float velocityX, float velocityY) {
+        public boolean onFling(MotionEvent e1, @NonNull MotionEvent e2, float velocityX, float velocityY) {
             try {
                 if( MyDebug.LOG )
                     Log.d(TAG, "from " + e1.getX() + " , " + e1.getY() + " to " + e2.getX() + " , " + e2.getY());
@@ -5240,7 +5521,9 @@ public class MainActivity extends AppCompatActivity {
                             Log.d(TAG, "zoom onProgressChanged: " + progress);
                         // note we zoom even if !fromUser, as various other UI controls (multitouch, volume key zoom, -/+ zoomcontrol)
                         // indirectly set zoom via this method, from setting the zoom slider
-                        preview.zoomTo(preview.getMaxZoom() - progress);
+                        // if hasSmoothZoom()==true, then the preview already handled zooming to the current value
+                        if( !preview.hasSmoothZoom() )
+                            preview.zoomTo(preview.getMaxZoom() - progress, false);
                     }
 
                     @Override
@@ -5440,6 +5723,12 @@ public class MainActivity extends AppCompatActivity {
             Log.d(TAG, "cameraSetup: total time for cameraSetup: " + (System.currentTimeMillis() - debug_time));
 
         this.getApplicationInterface().getDrawPreview().setDimPreview(false);
+
+        if( push_switched_camera ) {
+            push_switched_camera = false;
+            View switchCameraButton = findViewById(R.id.switch_camera);
+            switchCameraButton.animate().rotationBy(180).setDuration(250).setInterpolator(new AccelerateDecelerateInterpolator()).start();
+        }
     }
 
     private void setManualFocusSeekbar(final boolean is_target_distance) {

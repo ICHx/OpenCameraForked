@@ -219,7 +219,7 @@
     <string name="preference_record_audio_src">Audio source</string>
     <string name="preference_record_audio_src_summary">Microphone to use for recording audio. Note that the exact behaviour of the options depends on how the option is implemented on your device.\n%s</string>
     <string name="preference_record_audio_channels">Audio channels</string>
-    <string name="preference_record_audio_channels_summary">Specify mono or stereo for recording audio (stereo only supported on some devices)</string>
+    <string name="preference_record_audio_channels_summary">Specify mono or stereo for recording audio (stereo only supported on some devices)\n%s</string>
     <string name="preference_video_flash">Flash while recording video</string>
     <string name="preference_video_flash_summary">If enabled, flash will switch on/off when recording video (can be used to tell camera is still recording at a distance)</string>
     
@@ -528,7 +528,7 @@
     <string name="anti_banding_off">Off</string>
 
     <string name="preference_ghost_image">Ghost image</string>
-    <string name="preference_ghost_image_summary">Overlay an image, to help with alignment.\n%s</string>
+    <string name="preference_ghost_image_summary">Display an image over the preview, to help with alignment.\n%s</string>
     <string name="preference_ghost_image_off">Off</string>
     <string name="preference_ghost_image_last">Last photo taken</string>
     <string name="preference_ghost_image_selected">Selected image</string>
@@ -910,7 +910,7 @@
         This feature provides no guarantees on availability or accuracy. Results are a best guess, and not guaranteed to be meaningful or correct.
         \n%s</string>
 
-    <string name="intro_text">Touch to focus, and press the blue camera button to take photos.
+    <string name="intro_text">Touch to focus, and press the circular blue shutter button to take photos.
         \n\nTo disable maximum screen brightness, see Settings/On screen GUI/\"Force maximum brightness\".
         To save to SD cards on Android 5+, see Settings/More camera controls/\"Storage Access Framework\".
         For more help, click \"Online help\" from Settings.
@@ -1018,6 +1018,13 @@
     <string name="preference_remove_device_exif_on">Remove device EXIF data</string>
     <string name="preference_remove_device_exif_keep_datetime">Remove except date/time</string>
 
+    <string name="choose_camera">Choose camera:</string>
+
+    <string name="preference_show_focus_peaking">Show focus peaking icon</string>
+    <string name="preference_show_focus_peaking_summary">Whether to show an on-screen icon for enabling or disabling focus peaking. When focus peaking is enabled, highlights will be shown on in-focus edges (contours). See Settings/Camera preview/"Focus peaking".</string>
+    <string name="focus_peaking_enable">Enable focus peaking</string> <!-- for "ContentDescription" (used for accessibility, e.g., Google Talkback) -->
+    <string name="focus_peaking_disable">Disable focus peaking</string> <!-- for "ContentDescription" (used for accessibility, e.g., Google Talkback) -->
+
     <!-- The following strings should not be translated (and shouldn't be included in language-specific strings.xml), in case they need updating -->
 
     <string name="preference_privacy_policy" translatable="false">Privacy policy</string>
@@ -1051,7 +1058,7 @@
 
     <string name="preference_screen_licences" translatable="false">Open Source licences</string>
     <string name="preference_licence_open_camera" translatable="false">Open Camera</string>
-    <string name="preference_licence_open_camera_text" translatable="false">Open Camera is © 2013–2023 Mark Harman, released under the GPL v3 or later. Tap here for full licence text and terms of service.</string>
+    <string name="preference_licence_open_camera_text" translatable="false">Open Camera is © 2013–2024 Mark Harman, released under the GPL v3 or later. Tap here for full licence text and terms of service.</string>
     <string name="preference_licence_androidx" translatable="false">AndroidX libraries</string>
     <string name="preference_licence_androidx_text" translatable="false">Open Camera uses the AndroidX/Jetpack libraries
         under the Apache license version 2.0. Tap here for full licence text.</string>
@@ -1060,7 +1067,8 @@
         (https://developer.android.com/design/downloads/index.html ,
         https://design.google.com/icons/ ,
         https://github.com/google/material-design-icons/ ,
-        https://google.github.io/material-design-icons/)
+        https://google.github.io/material-design-icons/ ,
+        https://fonts.google.com/icons)
         under the Apache license version 2.0. Some icons include modifications. Tap here for full licence text.</string>
     <string name="preference_licence_online" translatable="false">Online licences</string>
     <string name="preference_licence_online_text" translatable="false">Please tap here for full online licensing information (opens in your browser).</string>
@@ -1069,15 +1077,13 @@
     <string name="whats_new_text" translatable="false">
         <small>[This dialog is shown when Open Camera is updated. You can disable it under
             Settings/On screen GUI/Show What\'s New dialog.]</small>
-        \n\n<b>v1.52:</b>\n
+        \n\n<b>v1.53:</b>\n
         <ul>
-            <li>Improvements for pinch zooming.\n</li>
-            <li>Fixes for split-screen and multi-window mode.\n</li>
-            <li>Support for zoom and on-screen ISO/exposure display when using camera vendor extensions (for supported Android 13+ devices).\n</li>
-            <li>\"Touch to capture\" option now supports starting and stopping video.\n</li>
-            <li>Applied a 2s timeout for focusing with original camera API.\n</li>
-            <li>Improved performance for NR photo mode.\n</li>
-            <li>No longer cancel panorama when rotating device too far in wrong direction.\n</li>
+            <li>Improved user interface icons.\n</li>
+            <li>Smoother zoom for Camera2 API.\n</li>
+            <li>Camera vendor extensions show percentage progress on supported Android 14 devices.\n</li>
+            <li>New option for on-screen icon to enable/disable focus peaking.\n</li>
+            <li>Support for themed/monochrome application icon.\n</li>
             <li>Various other improvements and bug fixes.\n</li>
         </ul>
     </string>

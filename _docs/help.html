@@ -80,6 +80,7 @@
 <li><a href="#contact">Contacting me (bugs etc)</a></li>
 </ul>
 
+<hr> <!-- help keep ads away from other content -->
 <!-- Remember that ad must not be more than 30% of total page content height (i.e., total page, not just what's
 on screen in the viewport. -->
 <!-- start adsense code -->
@@ -94,10 +95,11 @@ on screen in the viewport. -->
 (adsbygoogle = window.adsbygoogle || []).push({});
 </script>
 <!-- end adsense code -->
+<hr> <!-- help keep ads away from other content -->
 
 <p><a name="quickstart"><b>Quickstart</b></a></p>
 
-<p>Simply point, and press the blue camera icon <img src="take_photo.png" alt="Take Photo icon" width="32" height="32"> to take a photo.
+<p>Simply point, and press the blue circular camera icon to take a photo.
 If your device supports focus areas, you can touch the part of the screen you want to focus. Touching an area will also
 (if your device supports it) control the exposure level (e.g., so clicking on a bright area will adjust the exposure
 so that it becomes less bright). To zoom, use the slider next to the take photo button, or do a multi-touch "pinch"
@@ -113,7 +115,7 @@ you want to switch off the display, do so on your device manually).</p>
 
 <p><a name="user_interface"><b>On-Screen User Interface</b></a></p>
 
-<p><img src="take_photo.png" alt="Take Photo icon" width="32" height="32"><b>Take photo</b> - Click to take
+<p><b>Shutter button</b> - Click the blue circular icon to take
 a photo. In some cases, you can also hold (long press) for a continuous burst:</p>
 <ul>
     <li>Photo mode must be Standard or Fast Burst</li>
@@ -122,10 +124,20 @@ a photo. In some cases, you can also hold (long press) for a continuous burst:</
 </ul>
 
 <p><img src="take_video.png" alt="Switch to video icon" width="32" height="32"><b>Switch to video mode</b> - Clicking the
-    smaller video icon will switch to video mode. The photo and video icons will then swap: click the larger video icon to
-    start/stop video recording, and click the smaller photo icon to switch back to photo mode.</p>
+    smaller video icon next to the shutter button will switch to video mode. The shutter button will now show a smaller
+    blue dot in a white circle to indicate video mode. Pressing the shutter button will now start and stop video recording.
+    You can return to photo mode by clicking the
+    smaller photo icon<img src="take_photo.png" alt="Switch to video icon" width="32" height="32">.</p>
+<ul>
+    <li>When recording video, the main shutter button will turn red to indicate this. A smaller blue shutter button will show,
+        pressing this will take a photo while recording video. Note that different
+        photo modes are not supported when taking photos while recording video, nor is RAW supported. The photo resolution will not
+        in general match the resolution set in preferences, rather it will be set automatically (usually to match the aspect ratio
+        of the video resolution).
+    </li>
+</ul>
 
-<p><img src="baseline_switch_camera_white_48.png" alt="Switch Camera icon" width="32" height="32"><b>Switch camera</b> - Switches between front and back camera (if your
+<p><img src="switch_camera.png" alt="Switch Camera icon" width="32" height="32"><b>Switch camera</b> - Switches between front and back camera (if your
 device has both front and back cameras). If your device has more than one front and/or back camera, then this will switch
 between the first front and back camera.</p>
 
@@ -135,6 +147,8 @@ between the first front and back camera.</p>
     the standard and ultra-wide camera.
     If Settings/On screen GUI/"Multiple cameras icon" is disabled, then this icon will not show; instead the "Switch camera"
     icon can by used to cycle through all the cameras.
+    For devices with more than 2 cameras, long-pressing on either of the switch camera icons will bring up a menu, allowing you to switch to
+    any available camera.
     Note that some devices do not expose the multiple cameras explicitly, but instead will automatically switch cameras as required
     when zooming in or out (requires Camera2 API).
     Note that some other devices do not allow third party applications to access their multiple cameras at all, in which case Open Camera isn't
@@ -241,7 +255,7 @@ will be available which instead work by making the screen light up (note, front 
             <li><b>X-Bokeh:</b> Blurs the background of photos. This is typically intended when taking portraits of people.</li>
             <li><b>X-Bty:</b> Face retouch or "beauty", applies cosmetic effects to people's faces.</li>
         </ul>
-        Note many features may be unavailable when using an extension mode, including flash, zoom and manual controls.
+        Note many features may be unavailable when using an extension mode, including flash and manual controls.
     </li>
 </ul></li>
 <li><b>Auto-level</b> - Enable the auto-level feature for photos (see
@@ -286,12 +300,6 @@ dialog to choose a save location if additional locations have yet been defined. 
 <p><b><img src="ic_pause_circle_outline_white_48dp.png" alt="Pause video icon" width="32" height="32">Pause video</b> - When recording
 video, this icon allows you to pause and then resume video recording. (Requires Android 7.0 or higher.)</p>
 
-<p><b><img src="take_photo_when_video_recording.png" alt="Take photo snapshot icon" width="32" height="32">Take photo snapshot</b> - When recording
-video, the switch to photo mode icon turns white - selecting it will now take a photo while recording video. Note that different
-    photo modes are not supported when taking photos while recording video, nor is RAW supported. The photo resolution will not
-    in general match the resolution set in preferences, rather it will be set automatically (usually to match the aspect ratio
-    of the video resolution).</p>
-
 <p>In continuous focus mode, a white circle shows to indicate that the camera is focusing. When touching to focus, or in
     autofocus mode, a white square is shown (depending on the focus mode), which turns green to indicate that the auto-focus was
     successful, or red if it was not.</p>
@@ -311,8 +319,8 @@ cached location). If the location isn't available, a dash will be shown through 
 photos look right whether you hold the device in "portrait" or "landscape" mode. But Open Camera has the option to rotate the
 photos so they are perfectly level, so your shots come out looking perfectly level every time!</p>
 
-<p><a href="auto_level_v_1_49_web.jpg">
-<img src="auto_level_v_1_49_web.jpg" style="max-width:100%" alt="Screenshots demonstrating auto-level" title="Screenshots demonstrating auto-level">
+<p><a href="auto_level_v_1_53_web.jpg">
+<img src="auto_level_v_1_53_web.jpg" style="max-width:100%" alt="Screenshots demonstrating auto-level" title="Screenshots demonstrating auto-level">
 </a></p>
 
 <p>The above shows a rather exaggerated example - in practice, you can probably take better photos, but this feature ensures they
@@ -688,7 +696,7 @@ image should be drawn with.</p>
 <p><b>Zebra stripes foreground/background colour</b> - If "Show zebra stripes" is enabled, these options allow you to
 choose the colours of the stripes.</p>
 
-<p><b>Focus peaking</b> - Allows displaying on-screen highlights to indicate edges (contours) that are in-focus
+<p><a name="focus_peaking"><b>Focus peaking</b></a> - Allows displaying on-screen highlights to indicate edges (contours) that are in-focus
     (only available if Camera2 API is used). This is particularly useful in conjunction with manual focus mode, to help show
     which regions of the image are in focus. Note that enabling focus peaking may use more battery.</p>
 
@@ -748,6 +756,9 @@ to only have the preview showing.</li>
 <p><b>Show flash icon</b> - Whether to display an on-screen icon for cycling through flash modes. If this is enabled, then
 flash modes won't show on the popup menu. Also note that it is not possible to enable the torch with this method.</p>
 
+<p><b>Show focus peaking icon</b> - Whether to display an on-screen icon for enabling or disabling focus peaking. See
+    <a href="#focus_peaking">Settings/Camera preview/"Focus peaking"</a> above for more details.</p>
+
 <p><b>Show auto-level icon</b> - Whether to display an on-screen icon for enabling or disabling auto-level. See
     <a href="#face_detection">Settings/"Face detection"</a> above for more details.</p>
 
@@ -774,9 +785,8 @@ flash modes won't show on the popup menu. Also note that it is not possible to e
 
 <p><b>Show zoom slider controls</b> - Whether to display to a slider to control zoom.</p>
 
-<p><b>Show "Take Photo" icon</b> - Whether to display the
-<img src="take_photo.png" alt="Take Photo icon" width="16" height="16">
-icon for taking a photo (or recording video). Uncheck if you'd
+<p><b>Show "Take Photo" icon</b> - Whether to display the shutter button
+for taking a photo (or recording video). Uncheck if you'd
 rather take photos by other methods (e.g., if your device has a hardware shutter button, or using the volume keys).</p>
 
 <p><b>Show on-screen messages</b> - Open Camera will sometimes display temporary on-screen text with information (in some
@@ -856,6 +866,7 @@ uncompressed and unprocessed information from your camera. Please note the follo
     JPEG format.</li>
     <li>Some devices only support saving RAW images in the Standard or DRO photo modes. Higher end devices will also support saving RAW
     images also in Expo Bracketing and Focus Bracketing modes, as well as HDR where "Save all images for HDR mode" is enabled.
+    The X- modes do not support saving RAW images.
     The on-screen "RAW" icon will show if RAW is enabled for the current photo mode.</li>
 </ul>
 

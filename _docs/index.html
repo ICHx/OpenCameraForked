@@ -50,6 +50,7 @@
 </script>
 
 <!-- Google adsense auto ads -->
+<!-- If removing/changing this code, check the "Revoke or change cookie consent" link still works -->
 <script async src="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
 <script>
      (adsbygoogle = window.adsbygoogle || []).push({
@@ -87,10 +88,11 @@ on screen in the viewport. -->
 </a>-->
     <!-- we set max width of 100%, as this is in terms of the outer div (which has width 33%), and we don't want this being larger than the div -->
 <!-- "Aligning images with ads" not allowed - unclear how much separation/distinction is required between an image and ad, for now comment out the image -->
-<!-- Make sure that this ad doesn't doesn't occupy full page, "Site layout that pushes content below the fold" -->
+<!-- Make sure that this ad doesn't doesn't occupy full page, "Site layout that pushes content below the fold" -->
 <div style="min-width:125px;margin-top:5px">
 <!-- need min-width of 125px for responsive ads; optionally set a max-width if necessary so that ads aren't huge on non-mobile
 browsers -->
+<!-- If removing/changing this code, check the "Revoke or change cookie consent" link still works -->
 <!-- start adsense code -->
 <script async src="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
 <!-- ad_top_responsive -->
@@ -142,12 +144,15 @@ browsers -->
 <a href="https://sourceforge.net/p/opencamera/code/">Code Repository (Git)</a>
 </p>
 
-<p><b>Contents:</b></p>
+<!-- if changing the a name="contents", remember to update links to this, specifically the link from privacy policy -->
+<p><a name="contents"><b>Contents:</b></a></p>
 <ul>
 <li><a href="#requirements">Requirements</a></li>
 <li><a href="help.html">Instructions</a></li>
 <li><a href="#credits">Credits</a></li>
 <li><a href="privacy_oc.html">Privacy policy</a></li>
+<li><a href="javascript:googlefc.callbackQueue.push(googlefc.showRevocationMessage)">Revoke or change cookie consent for personal data (for EU/GDPR countries)</a></li>
+    <!-- Needed for adsense policies! If we change the wording of the above link, remember to update the privacy policy that refers to this. -->
 <li><a href="#licence">Licence and Terms of Service</a></li>
 <li><a href="history.html">History</a></li>
 </ul>
@@ -156,6 +161,7 @@ browsers -->
 <hr>
 <!-- Remember that ad must not be more than 30% of total page content height (i.e., total page, not just what's
 on screen in the viewport. -->
+<!-- If removing/changing this code, check the "Revoke or change cookie consent" link still works -->
 <!-- start adsense code -->
 <script async src="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
 <!-- contents_ad -->
@@ -216,8 +222,11 @@ Also see <i>"Can I use the Open Camera source code in my app?"</i> under the <a 
     <a href="https://developer.android.com/design/downloads/index.html">https://developer.android.com/&#8203;design/downloads/index.html</a> /
     <a href="https://design.google.com/icons/">https://design.google.com/icons/</a> /
     <a href="https://github.com/google/material-design-icons/">https://github.com/google/material-design-icons/</a> /
-    <a href="https://google.github.io/material-design-icons/">https://google.github.io/material-design-icons/</a>,
-    by Google, under <a href="https://www.apache.org/licenses/LICENSE-2.0.html">Apache license version 2.0</a> (some cases include modifications, no need to credit me).
+    <a href="https://google.github.io/material-design-icons/">https://google.github.io/material-design-icons/</a> /
+    <a href="https://fonts.google.com/icons">https://fonts.google.com/icons</a> ,
+    by Google, under <a href="https://www.apache.org/licenses/LICENSE-2.0.html">Apache license version 2.0</a>
+    (licence text also available <a href="google_material_design_icons_LICENSE-2.0.txt">here</a>.)
+    (some cases include modifications, no need to credit me).
     In particular:
     baseline_add_a_photo_white_48.png,
     baseline_bedtime_white_48.png
@@ -233,7 +242,7 @@ Also see <i>"Can I use the Open Camera source code in my app?"</i> under the <a 
     baseline_remove_red_eye_white_48.png,
     baseline_rotate_left_white_48.png, baseline_rotate_right_white_48.png,
     baseline_shutter_speed_white_48.png,
-    baseline_switch_camera_white_48.png,
+    baseline_switch_camera_white_48.png, <!-- baseline_switch_camera_white_48.png no longer used in v1.53 onwards -->
     baseline_text_fields_red_48.png (modified from baseline_text_fields_white_48), baseline_text_fields_white_48.png,
     exposure_locked.png (modified from baseline_lock_white_48 and ic_exposure_white_48dp),
     exposure_unlocked.png (modified from baseline_lock_open_white_48 and ic_exposure_white_48dp),
@@ -258,9 +267,11 @@ Also see <i>"Can I use the Open Camera source code in my app?"</i> under the <a 
     ic_timelapse_white_48dp.png, ic_timer_white_48dp.png,
     ic_touch_app_white_48dp.png, ic_videocam_white_48dp.png,
     ic_stat_notify_take_photo.png (modified from ic_photo_camera_white_48dp),
+    key_visualizer_red.xml (modified from key_visualizer), key_visualizer.xml,
     popup*.png (modified from ic_more_vert_white, baseline_highlight_white, baseline_remove_red_eye_white, baseline_flash_auto_white,
     baseline_flash_off_white, ic_action_flash_on),
     settings.png (from ic_action_settings), share.png (from ic_action_share),
+    switch_camera.png (modified from baseline_loop_white_48),
     take_photo.png (modified from ic_photo_camera_white_48dp), take_photo_pref.png (modified from ic_photo_camera_white_48dp),
     take_photo_pressed.png (modified from ic_photo_camera_white_48dp), take_photo_when_video_recording.png (modified from ic_photo_camera_white_48dp),
     take_video.png (modified from baseline_videocam_white_48), take_video_pref.png (modified from baseline_videocam_white_48),
